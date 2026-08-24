@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docrecorder"
+version = "0.1.0"
+description = "Record clicks, keystrokes, and window screenshots into step-by-step documentation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "pynput>=1.7.6",
+    "Pillow>=10.0.0",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+whisper = ["faster-whisper>=1.1", "sounddevice>=0.5", "numpy>=1.24"]
+
+[project.scripts]
+docrecorder = "docrecorder.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
