@@ -21,6 +21,11 @@ if sys.platform == "win32":
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # HWNDs are pointer-sized; without these the default c_int restype truncates them.
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.restype = wintypes.BOOL
     try:
         dwmapi = ctypes.WinDLL("dwmapi")
     except OSError:
@@ -75,7 +80,7 @@ class WindowsCapture:
 
     def get_window(self, window_id: int) -> WindowInfo | None:
         self._require_win32()
-        hwnd = wintypes.HWND(window_id)
+        hwnd = int(window_id)
         if not user32.IsWindow(hwnd):
             return None
         return self._window_info(hwnd, require_visible=False)

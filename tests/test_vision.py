@@ -29,33 +29,85 @@ def test_parse_target_json_rejects_invalid():
 def test_identify_clicks_sets_target(tmp_path):
     crops = tmp_path / "crops"
     crops.mkdir()
-    (crops / "step-01.jpg").write_bytes(b"fake-jpeg")
+    (crops / "step-01.png").write_bytes(b"clean")
+    (crops / "step-01-marked.png").write_bytes(b"marked")
     session = {
         "steps": [
-            {"type": "click", "screenshot_crop": "crops/step-01.jpg"},
+            {
+                "type": "click",
+                "screenshot_crop": "crops/step-01.png",
+                "screenshot_crop_marked": "crops/step-01-marked.png",
+            },
             {"type": "type", "text": "hello"},
         ]
     }
+    seen = {}
 
-    def fake_chat(_image_bytes: bytes) -> str:
+    def fake_chat(images: list[bytes], context: str | None) -> str:
+        seen["images"] = images
         return '{"label": "Save", "kind": "button"}'
 
     warning = identify_clicks(session, tmp_path, chat=fake_chat)
     assert warning is None
-    assert session["steps"][0]["target"] == {"label": "Save", "kind": "button"}
+    assert session["steps"][0]["target"] == {
+        "label": "Save",
+        "kind": "button",
+        "source": "vision",
+    }
+    assert seen["images"] == [b"clean", b"marked"]
     assert "target" not in session["steps"][1]
+
+
+def test_identify_clicks_skips_steps_labelled_by_accessibility(tmp_path):
+    crops = tmp_path / "crops"
+    crops.mkdir()
+    (crops / "step-01.png").write_bytes(b"clean")
+    session = {
+        "steps": [
+            {
+                "type": "click",
+                "screenshot_crop": "crops/step-01.png",
+                "target": {"label": "annotated", "kind": "item", "source": "uia"},
+            }
+        ]
+    }
+
+    def fail(_images, _context):
+        raise AssertionError("vision should not run for an already-labelled step")
+
+    assert identify_clicks(session, tmp_path, chat=fail) is None
+    assert session["steps"][0]["target"]["source"] == "uia"
+
+
+def test_identify_clicks_passes_window_context(tmp_path):
+    crops = tmp_path / "crops"
+    crops.mkdir()
+    (crops / "step-01.png").write_bytes(b"clean")
+    session = {
+        "app_name": "Explorer",
+        "window_title": "recordings",
+        "steps": [{"type": "click", "screenshot_crop": "crops/step-01.png"}],
+    }
+    seen = {}
+
+    def fake_chat(_images, context: str | None) -> str:
+        seen["context"] = context
+        return '{"label": "annotated", "kind": "item"}'
+
+    identify_clicks(session, tmp_path, chat=fake_chat)
+    assert seen["context"] == "Explorer - recordings"
 
 
 def test_identify_clicks_skips_empty_label(tmp_path):
     crops = tmp_path / "crops"
     crops.mkdir()
-    (crops / "step-01.jpg").write_bytes(b"fake-jpeg")
-    session = {"steps": [{"type": "click", "screenshot_crop": "crops/step-01.jpg"}]}
+    (crops / "step-01.png").write_bytes(b"clean")
+    session = {"steps": [{"type": "click", "screenshot_crop": "crops/step-01.png"}]}
 
     warning = identify_clicks(
         session,
         tmp_path,
-        chat=lambda _data: '{"label": "", "kind": "unknown"}',
+        chat=lambda _images, _context: '{"label": "", "kind": "unknown"}',
     )
     assert warning is None
     assert "target" not in session["steps"][0]
@@ -64,17 +116,17 @@ def test_identify_clicks_skips_empty_label(tmp_path):
 def test_identify_clicks_unreachable_skips_remaining(tmp_path):
     crops = tmp_path / "crops"
     crops.mkdir()
-    (crops / "step-01.jpg").write_bytes(b"one")
-    (crops / "step-02.jpg").write_bytes(b"two")
+    (crops / "step-01.png").write_bytes(b"one")
+    (crops / "step-02.png").write_bytes(b"two")
     session = {
         "steps": [
-            {"type": "click", "screenshot_crop": "crops/step-01.jpg"},
-            {"type": "click", "screenshot_crop": "crops/step-02.jpg"},
+            {"type": "click", "screenshot_crop": "crops/step-01.png"},
+            {"type": "click", "screenshot_crop": "crops/step-02.png"},
         ]
     }
     calls = {"n": 0}
 
-    def fake_chat(_image_bytes: bytes) -> str:
+    def fake_chat(_images, _context) -> str:
         calls["n"] += 1
         raise OllamaUnreachable("down")
 
@@ -98,20 +150,26 @@ def test_chat_vision_posts_image(mock_urlopen):
     response.__enter__.return_value = response
     mock_urlopen.return_value = response
 
-    text = chat_vision(b"jpeg-bytes", model="qwen3.5:4b-mlx", host="http://127.0.0.1:11434")
+    text = chat_vision(
+        [b"clean-png", b"marked-png"],
+        "Explorer - recordings",
+        model="qwen3.5:4b",
+        host="http://127.0.0.1:11434",
+    )
     assert json.loads(text)["label"] == "OK"
     request = mock_urlopen.call_args[0][0]
     body = json.loads(request.data.decode("utf-8"))
-    assert body["model"] == "qwen3.5:4b-mlx"
+    assert body["model"] == "qwen3.5:4b"
     assert body["think"] is False
-    assert body["messages"][0]["images"]
+    assert len(body["messages"][0]["images"]) == 2
+    assert "Explorer - recordings" in body["messages"][0]["content"]
 
 
 @patch("docrecorder.vision.urllib.request.urlopen")
 def test_chat_vision_connection_error(mock_urlopen):
     mock_urlopen.side_effect = URLError("connection refused")
     try:
-        chat_vision(b"jpeg-bytes")
+        chat_vision([b"png-bytes"])
     except OllamaUnreachable as exc:
         assert "Ollama is not running" in str(exc)
         return

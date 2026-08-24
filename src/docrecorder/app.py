@@ -79,7 +79,7 @@ class DocRecorderApp:
         ttk.Checkbutton(options, text="Save raw screenshots", variable=self.save_raw_var).pack(side=tk.LEFT)
         self.identify_check = ttk.Checkbutton(
             options,
-            text="Identify clicks with Ollama",
+            text="Identify clicked controls",
             variable=self.identify_var,
         )
         self.identify_check.pack(side=tk.LEFT, padx=(16, 0))

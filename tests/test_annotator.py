@@ -1,6 +1,11 @@
 from PIL import Image
 
-from docrecorder.annotator import annotate_click, crop_around_click
+from docrecorder.annotator import (
+    annotate_click,
+    crop_around_click,
+    mark_crop,
+    upscale_for_vision,
+)
 
 
 def test_annotate_marks_scaled_click_pixel():
@@ -27,16 +32,36 @@ def test_annotate_clamps_out_of_bounds():
 
 def test_crop_centered_on_click():
     image = Image.new("RGB", (800, 600), (20, 40, 60))
-    crop = crop_around_click(image, logical_x=400, logical_y=300, scale=1.0, size=480)
+    crop, cx, cy = crop_around_click(image, logical_x=400, logical_y=300, scale=1.0, size=480)
     assert crop.size == (480, 480)
-    red, green, blue = crop.getpixel((240, 240))
+    assert (cx, cy) == (240, 240)
+
+
+def test_crop_is_unmarked():
+    image = Image.new("RGB", (800, 600), (20, 40, 60))
+    crop, cx, cy = crop_around_click(image, logical_x=400, logical_y=300, scale=1.0, size=480)
+    assert crop.getpixel((cx, cy)) == (20, 40, 60)
+
+
+def test_mark_crop_encircles_without_covering_click():
+    image = Image.new("RGB", (800, 600), (20, 40, 60))
+    crop, cx, cy = crop_around_click(image, logical_x=400, logical_y=300, scale=1.0, size=480)
+    marked = mark_crop(crop, cx, cy)
+    assert marked.getpixel((cx, cy)) == (20, 40, 60)
+    radius = max(16, min(marked.width, marked.height) // 12)
+    red, green, blue = marked.getpixel((cx + radius, cy))
     assert red > green
     assert red > blue
 
 
+def test_upscale_for_vision_respects_max_side():
+    assert upscale_for_vision(Image.new("RGB", (480, 480)), factor=2).size == (960, 960)
+    assert upscale_for_vision(Image.new("RGB", (1000, 800)), factor=2).size == (1000, 800)
+
+
 def test_crop_clamps_to_image_bounds():
     image = Image.new("RGB", (100, 80), (255, 255, 255))
-    crop = crop_around_click(image, logical_x=5, logical_y=5, scale=1.0, size=480)
+    crop, _cx, _cy = crop_around_click(image, logical_x=5, logical_y=5, scale=1.0, size=480)
     assert crop.size == (100, 80)
 
 
