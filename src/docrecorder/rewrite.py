@@ -6,10 +6,15 @@ from typing import Any
 
 from docrecorder.exporter import step_caption
 from docrecorder.transcribe import format_transcript_segments
-from docrecorder.vision import OllamaUnreachable, chat_json, extract_json_object
+from docrecorder.vision import (
+    DEFAULT_MODEL,
+    OllamaUnreachable,
+    chat_json,
+    extract_json_object,
+)
 
 REWRITE_UNREACHABLE_MESSAGE = (
-    "Ollama is not running or qwen3.5:4b is unavailable. "
+    f"Ollama is not running or {DEFAULT_MODEL} is unavailable. "
     "Step captions were not rewritten."
 )
 REWRITE_PROMPT = (

@@ -4,13 +4,15 @@ import base64
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODEL = "qwen3.5:4b"
+# Apple silicon serves the MLX build; every other platform uses the portable weights.
+DEFAULT_MODEL = "qwen3.5:4b-mlx" if sys.platform == "darwin" else "qwen3.5:4b"
 DEFAULT_HOST = "http://127.0.0.1:11434"
 TIMEOUT_SECONDS = 45
 VALID_KINDS = frozenset(
@@ -34,7 +36,7 @@ JSON_SCHEMA = {
     "required": ["label", "kind"],
 }
 UNREACHABLE_MESSAGE = (
-    "Ollama is not running or qwen3.5:4b is unavailable. "
+    f"Ollama is not running or {DEFAULT_MODEL} is unavailable. "
     "Click labels were skipped; captions use coordinates."
 )
 
