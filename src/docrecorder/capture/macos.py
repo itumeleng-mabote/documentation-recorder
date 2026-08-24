@@ -53,6 +53,30 @@ class MacOSCapture:
                 return info
         return None
 
+    def resolve_active_window(
+        self,
+        window_id: int,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> WindowInfo | None:
+        """The recorded window, or a panel the same app opened over it (file picker)."""
+        base = self.get_window(window_id)
+        if base is None or x is None or y is None:
+            return base
+        listed = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+            Quartz.kCGNullWindowID,
+        ) or []
+        for item in listed:
+            info = self._parse(item)
+            if info is None or info.pid != base.pid:
+                continue
+            if info.width < _MIN_SIZE or info.height < _MIN_SIZE:
+                continue
+            if info.x <= x < info.x + info.width and info.y <= y < info.y + info.height:
+                return info
+        return base
+
     def _collect(self, options: int, exclude: set[int]) -> list[WindowInfo]:
         windows: list[WindowInfo] = []
         seen: set[int] = set()

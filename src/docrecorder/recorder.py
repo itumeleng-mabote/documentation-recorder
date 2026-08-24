@@ -291,7 +291,7 @@ class Recorder:
             if not self._is_armed():
                 return
             self._commit_type_locked()
-            window = self._refresh_window_locked()
+            window = self._resolve_window_locked(x, y)
             if window is None:
                 self._pause_with_error_locked(
                     "The selected window was closed or is no longer available."
@@ -389,7 +389,7 @@ class Recorder:
         text = self._buffer.flush()
         if not text or self._session is None or self._session_dir is None or self._window_id is None:
             return
-        window = self._refresh_window_locked()
+        window = self._resolve_window_locked()
         if window is None:
             step_index = len(self._session["steps"]) + 1
             self._session["steps"].append(
@@ -448,6 +448,22 @@ class Recorder:
         if self._window_id is None:
             return None
         return self.capture.get_window(self._window_id)
+
+    def _resolve_window_locked(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> WindowInfo | None:
+        """Follow the target window into dialogs it opens, such as file pickers."""
+        if self._window_id is None:
+            return None
+        resolver = getattr(self.capture, "resolve_active_window", None)
+        if resolver is None:
+            return self._refresh_window_locked()
+        try:
+            return resolver(self._window_id, x, y) or self._refresh_window_locked()
+        except CaptureError:
+            return self._refresh_window_locked()
 
     def _elapsed_s_locked(self) -> float | None:
         if self._mic is None:

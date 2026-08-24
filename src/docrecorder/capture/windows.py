@@ -13,9 +13,15 @@ _MIN_SIZE = 50
 PW_RENDERFULLCONTENT = 2
 SRCCOPY = 0x00CC0020
 BI_RGB = 0
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 GA_ROOT = 2
+GA_ROOTOWNER = 3
+GW_OWNER = 4
+# Processes that host file pickers on behalf of another app.
+_DIALOG_HOST_PROCESSES = {"explorer", "pickerhost", "dllhost", "applicationframehost"}
+_SHELL_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
 
 if sys.platform == "win32":
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -26,8 +32,21 @@ if sys.platform == "win32":
     user32.GetAncestor.restype = wintypes.HWND
     user32.IsWindow.argtypes = [wintypes.HWND]
     user32.IsWindow.restype = wintypes.BOOL
+    user32.WindowFromPoint.argtypes = [wintypes.POINT]
+    user32.WindowFromPoint.restype = wintypes.HWND
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetWindow.restype = wintypes.HWND
     try:
         dwmapi = ctypes.WinDLL("dwmapi")
+        dwmapi.DwmGetWindowAttribute.argtypes = [
+            wintypes.HWND,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
     except OSError:
         dwmapi = None
 else:
@@ -85,6 +104,54 @@ class WindowsCapture:
             return None
         return self._window_info(hwnd, require_visible=False)
 
+    def resolve_active_window(
+        self,
+        window_id: int,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> WindowInfo | None:
+        """The recorded window, or a dialog it opened (file picker, message box)."""
+        self._require_win32()
+        base = self.get_window(window_id)
+        if x is None or y is None:
+            candidate = user32.GetForegroundWindow()
+        else:
+            candidate = user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+            if candidate:
+                candidate = user32.GetAncestor(candidate, GA_ROOT)
+        if not candidate or int(candidate) == int(window_id):
+            return base
+        if not self._is_companion(candidate, int(window_id)):
+            return base
+        return self._window_info(candidate, require_visible=False) or base
+
+    def _is_companion(self, hwnd, root_id: int) -> bool:
+        if user32.GetAncestor(hwnd, GA_ROOTOWNER) == root_id:
+            return True
+        owner = user32.GetWindow(hwnd, GW_OWNER)
+        seen = 0
+        while owner and seen < 8:
+            if int(owner) == root_id:
+                return True
+            owner = user32.GetWindow(owner, GW_OWNER)
+            seen += 1
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        root_pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(wintypes.HWND(root_id), ctypes.byref(root_pid))
+        if pid.value and pid.value == root_pid.value:
+            return True
+        if self._class_name(hwnd) in _SHELL_CLASSES:
+            return False
+        if user32.GetForegroundWindow() != hwnd:
+            return False
+        return self._process_name(pid.value).lower() in _DIALOG_HOST_PROCESSES
+
+    def _class_name(self, hwnd) -> str:
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buf, len(buf))
+        return buf.value
+
     def capture(self, window_id: int) -> Image.Image:
         self._require_win32()
         hwnd = wintypes.HWND(window_id)
@@ -126,7 +193,7 @@ class WindowsCapture:
             if bits == 0:
                 raise CaptureError("Could not copy window pixels.")
             image = Image.frombuffer("RGB", (width, height), buffer, "raw", "BGRX", 0, 1)
-            return image.copy()
+            return self._crop_to_frame(hwnd, image, rect).copy()
         finally:
             gdi32.SelectObject(mem_dc, old)
             gdi32.DeleteObject(bmp)
@@ -153,6 +220,7 @@ class WindowsCapture:
         rect = wintypes.RECT()
         if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             return None
+        rect = self._extended_frame_bounds(hwnd) or rect
         width = float(rect.right - rect.left)
         height = float(rect.bottom - rect.top)
         if width < _MIN_SIZE or height < _MIN_SIZE:
@@ -169,6 +237,35 @@ class WindowsCapture:
             width=width,
             height=height,
         )
+
+    def _extended_frame_bounds(self, hwnd):
+        """Visible frame, excluding the invisible DWM resize border and drop shadow."""
+        if dwmapi is None:
+            return None
+        bounds = wintypes.RECT()
+        result = dwmapi.DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            ctypes.byref(bounds),
+            ctypes.sizeof(bounds),
+        )
+        if result != 0 or bounds.right <= bounds.left or bounds.bottom <= bounds.top:
+            return None
+        return bounds
+
+    def _crop_to_frame(self, hwnd, image: Image.Image, rect) -> Image.Image:
+        bounds = self._extended_frame_bounds(hwnd)
+        if bounds is None:
+            return image
+        left = max(0, int(bounds.left - rect.left))
+        top = max(0, int(bounds.top - rect.top))
+        right = min(image.width, image.width - int(rect.right - bounds.right))
+        bottom = min(image.height, image.height - int(rect.bottom - bounds.bottom))
+        if right - left < _MIN_SIZE or bottom - top < _MIN_SIZE:
+            return image
+        if (left, top, right, bottom) == (0, 0, image.width, image.height):
+            return image
+        return image.crop((left, top, right, bottom))
 
     def _is_cloaked(self, hwnd) -> bool:
         if dwmapi is None:
