@@ -39,7 +39,7 @@ docrecorder
 1. Pick the target window from the dropdown (Refresh if it is not listed yet).
 2. Choose an output folder (default: `./recordings`).
 3. Leave **Save raw screenshots** checked if you also want unmarked PNGs.
-4. Leave **Identify clicks with Ollama** checked to name clicked buttons after you stop (requires a local Ollama model; see below).
+4. Leave **Identify clicked controls** checked to name clicked buttons after you stop (see below).
 5. Optionally check **Record narration (Whisper)** and speak while you demonstrate the flow.
 6. Click **Start** (or press **Cmd+Shift+R** / **Ctrl+Shift+R**).
 7. Click and type in the target app. Use **Pause** to skip sensitive input such as passwords (Pause also mutes the microphone).
@@ -60,25 +60,31 @@ recordings/2026-08-24_15-03-00/
 
 Clicks are drawn as a high-contrast circle on the annotated images. Typed text is grouped into one step until you press Enter or Tab, click, or pause typing for about 1.5 seconds.
 
-When identification is on, Stop sends a cropped screenshot of each click to local Ollama. Successful labels become captions such as `Click **Save**.`; if Ollama is not running, captions fall back to coordinates such as `Click at (120, 48).`
+When identification is on, Windows reads the accessible name of the control you clicked at click time. Anything it cannot name falls back to Ollama: Stop sends two crops per click, one clean and one with a red ring around the click point, so the model can read the label without the marker covering it. Successful labels become captions such as `Click **Save**.`; if neither source works, captions fall back to coordinates such as `Click at (120, 48).`
 
-When narration is on, Stop transcribes `audio.wav` with local [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (model `base`, or `DOCRECORDER_WHISPER_MODEL` to override). The same local `qwen3.5:4b-mlx` model then writes fuller step captions. If the microphone, Whisper, or Ollama is unavailable, the guide keeps the mechanical captions.
+When narration is on, Stop transcribes `audio.wav` with local [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (model `base`, or `DOCRECORDER_WHISPER_MODEL` to override). The same local `qwen3.5:4b` model then writes fuller step captions. If the microphone, Whisper, or Ollama is unavailable, the guide keeps the mechanical captions.
 
-## Ollama click labels
+## Click labels
 
-Install [Ollama](https://ollama.com), then pull the vision model:
+On Windows, control names come from UI Automation first, which needs `comtypes`:
 
-```bash
-ollama pull qwen3.5:4b-mlx
+```
+pip install -e ".[uia]"
 ```
 
-The recorder talks to `http://127.0.0.1:11434` (`OLLAMA_HOST` if set) using `qwen3.5:4b-mlx` (`DOCRECORDER_OLLAMA_MODEL` to override). Crops stay on disk under `crops/` and are sent only to that local server.
+Without it (or on macOS), labeling falls back to the vision model. Install [Ollama](https://ollama.com), then pull the vision model:
 
-Uncheck **Identify clicks with Ollama** to skip labeling. Recording itself does not wait on the model; identification runs after Stop.
+```bash
+ollama pull qwen3.5:4b
+```
+
+The recorder talks to `http://127.0.0.1:11434` (`OLLAMA_HOST` if set) using `qwen3.5:4b` (`DOCRECORDER_OLLAMA_MODEL` to override). Crops stay on disk under `crops/` and are sent only to that local server.
+
+Uncheck **Identify clicked controls** to skip labeling. Recording itself does not wait on the model; identification runs after Stop.
 
 ## Whisper narration
 
-Install the optional extra (`pip install -e ".[whisper]"`), then check **Record narration (Whisper)** before Start. Speak while you click and type. After Stop, faster-whisper transcribes the session WAV (model `base`, or `DOCRECORDER_WHISPER_MODEL` to override). The same local `qwen3.5:4b-mlx` model then writes fuller step captions. If the microphone, Whisper, or Ollama is unavailable, the guide keeps the mechanical captions.
+Install the optional extra (`pip install -e ".[whisper]"`), then check **Record narration (Whisper)** before Start. Speak while you click and type. After Stop, faster-whisper transcribes the session WAV (model `base`, or `DOCRECORDER_WHISPER_MODEL` to override). The same local `qwen3.5:4b` model then writes fuller step captions. If the microphone, Whisper, or Ollama is unavailable, the guide keeps the mechanical captions.
 
 The first transcription downloads the Whisper model. Later sessions reuse it.
 

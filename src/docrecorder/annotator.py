@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from PIL import Image, ImageDraw
 
 
@@ -41,14 +43,20 @@ def annotate_click(
     return Image.alpha_composite(overlay_base, overlay).convert("RGB")
 
 
+class ClickCrop(NamedTuple):
+    image: Image.Image
+    cx: int
+    cy: int
+
+
 def crop_around_click(
     image: Image.Image,
     logical_x: float,
     logical_y: float,
     scale: float = 1.0,
     size: int = 480,
-) -> Image.Image:
-    """Crop around a click and mark the target with a small hollow ring."""
+) -> ClickCrop:
+    """Crop around a click. Returns the unmarked crop and the click position inside it."""
     rgb = image.convert("RGB")
     px, py = click_pixel(rgb, logical_x, logical_y, scale)
     crop_w = min(size, rgb.width)
@@ -56,16 +64,28 @@ def crop_around_click(
     left = max(0, min(px - crop_w // 2, rgb.width - crop_w))
     top = max(0, min(py - crop_h // 2, rgb.height - crop_h))
     cropped = rgb.crop((left, top, left + crop_w, top + crop_h))
+    return ClickCrop(cropped, px - left, py - top)
 
-    overlay_base = cropped.convert("RGBA")
+
+def mark_crop(crop: Image.Image, cx: int, cy: int) -> Image.Image:
+    """Encircle the click point without painting over it, so the label stays readable."""
+    overlay_base = crop.convert("RGBA")
     overlay = Image.new("RGBA", overlay_base.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    cx = px - left
-    cy = py - top
-    radius = max(10, min(overlay.width, overlay.height) // 24)
+    radius = max(16, min(overlay.width, overlay.height) // 12)
     _ellipse(draw, cx, cy, radius, fill=None, outline=(255, 45, 45, 255), width=3)
-    _ellipse(draw, cx, cy, 3, fill=(255, 50, 50, 230), outline=(255, 255, 255, 220), width=1)
     return Image.alpha_composite(overlay_base, overlay).convert("RGB")
+
+
+def upscale_for_vision(image: Image.Image, factor: int = 2, max_side: int = 1400) -> Image.Image:
+    """Enlarge a crop so small UI text survives the vision model's own downsampling."""
+    long_side = max(image.width, image.height)
+    if long_side <= 0:
+        return image
+    factor = min(factor, max(1, max_side // long_side))
+    if factor <= 1:
+        return image
+    return image.resize((image.width * factor, image.height * factor), Image.LANCZOS)
 
 
 def _ellipse(

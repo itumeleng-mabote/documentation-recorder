@@ -9,7 +9,7 @@ from docrecorder.transcribe import format_transcript_segments
 from docrecorder.vision import OllamaUnreachable, chat_json, extract_json_object
 
 REWRITE_UNREACHABLE_MESSAGE = (
-    "Ollama is not running or qwen3.5:4b-mlx is unavailable. "
+    "Ollama is not running or qwen3.5:4b is unavailable. "
     "Step captions were not rewritten."
 )
 REWRITE_PROMPT = (

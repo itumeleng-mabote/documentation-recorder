@@ -11,15 +11,21 @@ from typing import Any
 
 from pynput import keyboard, mouse
 
-from docrecorder.annotator import annotate_click, crop_around_click
+from docrecorder.annotator import (
+    annotate_click,
+    crop_around_click,
+    mark_crop,
+    upscale_for_vision,
+)
 from docrecorder.audio import MicRecorder, WHISPER_INSTALL_MESSAGE, mic_available
 from docrecorder.capture.base import CaptureError, WindowInfo
 from docrecorder.capture.coords import point_in_rect, scale_from_image, to_local
+from docrecorder.capture.uia_windows import ElementProbe
 from docrecorder.exporter import write_session
 from docrecorder.rewrite import rewrite_captions
 from docrecorder.transcribe import transcribe_wav, whisper_available, whisper_model
 from docrecorder.typing_buffer import TypingBuffer
-from docrecorder.vision import identify_clicks
+from docrecorder.vision import identify_clicks, needs_label
 
 START_DELAY_SECONDS = 0.4
 IDLE_SECONDS = 1.5
@@ -42,6 +48,7 @@ class Recorder:
         self._session: dict[str, Any] | None = None
         self._save_raw = True
         self._identify_clicks = False
+        self._probe = ElementProbe()
         self._rewrite = False
         self._mic: MicRecorder | None = None
         self._buffer = TypingBuffer(idle_seconds=IDLE_SECONDS)
@@ -102,6 +109,7 @@ class Recorder:
             self._session_dir = session_dir
             self._save_raw = save_raw
             self._identify_clicks = identify_clicks
+            self._probe = ElementProbe()
             self._rewrite = record_audio
             self._mic = None
             self._buffer = TypingBuffer(idle_seconds=IDLE_SECONDS)
@@ -156,7 +164,7 @@ class Recorder:
             session["steps"] = [dict(step) for step in self._session["steps"]]
             session_dir = self._session_dir
             should_identify = self._identify_clicks and any(
-                step.get("type") == "click" and step.get("screenshot_crop") for step in session["steps"]
+                needs_label(step) for step in session["steps"]
             )
             should_rewrite = self._rewrite and bool(session["steps"])
             mic = self._mic
@@ -292,6 +300,10 @@ class Recorder:
             if not point_in_rect(x, y, window.x, window.y, window.width, window.height):
                 return
             local_x, local_y = to_local(x, y, window.x, window.y)
+            target = self._probe.lookup(x, y) if self._identify_clicks else None
+            if self._probe.warning:
+                self._emit("status", self._probe.warning)
+                self._probe.warning = None
             try:
                 image = self.capture.capture(window.window_id)
             except CaptureError as exc:
@@ -317,17 +329,24 @@ class Recorder:
             elapsed = self._elapsed_s_locked()
             if elapsed is not None:
                 step["elapsed_s"] = elapsed
+            if target:
+                step["target"] = target
             if self._save_raw:
                 raw_rel = f"raw/{raw_name}"
                 (self._session_dir / "raw").mkdir(parents=True, exist_ok=True)
                 image.save(self._session_dir / raw_rel)
                 step["screenshot_raw"] = raw_rel
             if self._identify_clicks:
-                crop = crop_around_click(image, local_x, local_y, scale)
-                crop_rel = f"crops/step-{step_index:02d}.jpg"
+                crop, cx, cy = crop_around_click(image, local_x, local_y, scale)
+                crop_rel = f"crops/step-{step_index:02d}.png"
+                marked_rel = f"crops/step-{step_index:02d}-marked.png"
                 (self._session_dir / "crops").mkdir(parents=True, exist_ok=True)
-                crop.save(self._session_dir / crop_rel, format="JPEG", quality=85)
+                upscale_for_vision(crop).save(self._session_dir / crop_rel, format="PNG")
+                upscale_for_vision(mark_crop(crop, cx, cy)).save(
+                    self._session_dir / marked_rel, format="PNG"
+                )
                 step["screenshot_crop"] = crop_rel
+                step["screenshot_crop_marked"] = marked_rel
             self._session["steps"].append(step)
             self._emit("status", self._status_text())
 
