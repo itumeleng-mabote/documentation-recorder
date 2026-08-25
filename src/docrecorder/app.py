@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import queue
-import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -11,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from docrecorder.audio import WHISPER_INSTALL_MESSAGE
 from docrecorder.capture import CaptureError, get_capture
 from docrecorder.capture.base import WindowInfo
+from docrecorder.editor import open_preview_editor
 from docrecorder.labels import unique_labels
 from docrecorder.recorder import Recorder
 from docrecorder.transcribe import whisper_extra_installed
@@ -24,8 +24,8 @@ class DocRecorderApp:
         self.root.title("Documentation Recorder")
         self.root.attributes("-topmost", True)
         self.root.resizable(True, False)
-        self.root.geometry("760x210")
-        self.root.minsize(640, 200)
+        self.root.geometry("820x210")
+        self.root.minsize(720, 200)
 
         self.capture = get_capture()
         self.events: queue.Queue = queue.Queue()
@@ -101,7 +101,9 @@ class DocRecorderApp:
         self.stop_btn = ttk.Button(controls, text="Stop", command=self._on_stop)
         self.start_btn.pack(side=tk.LEFT, padx=(0, 6))
         self.pause_btn.pack(side=tk.LEFT, padx=(0, 6))
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 12))
+        self.stop_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.edit_btn = ttk.Button(controls, text="Edit session…", command=self._on_edit_session)
+        self.edit_btn.pack(side=tk.LEFT, padx=(0, 12))
         ttk.Label(controls, textvariable=self.status_var).pack(side=tk.LEFT)
 
     def refresh_windows(self) -> None:
@@ -180,6 +182,14 @@ class DocRecorderApp:
         if chosen:
             self.output_var.set(chosen)
 
+    def _on_edit_session(self) -> None:
+        chosen = filedialog.askdirectory(
+            initialdir=self.output_var.get() or str(Path.cwd()),
+            title="Open session folder",
+        )
+        if chosen:
+            open_preview_editor(self.root, Path(chosen))
+
     def _sync_buttons(self) -> None:
         state = self.recorder.state
         recording = state == "recording"
@@ -214,7 +224,7 @@ class DocRecorderApp:
             elif kind == "stopped":
                 self.status_var.set("Idle")
                 self._sync_buttons()
-                _open_folder(Path(payload))
+                open_preview_editor(self.root, Path(payload))
             elif kind == "hotkey":
                 self._on_hotkey()
         self.root.after(50, self._poll)
@@ -237,16 +247,6 @@ class DocRecorderApp:
             self.recorder.stop()
         self.recorder.shutdown()
         self.root.destroy()
-
-
-def _open_folder(path: Path) -> None:
-    try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
-        elif sys.platform == "win32":
-            os.startfile(path)  # type: ignore[attr-defined]
-    except OSError:
-        pass
 
 
 def main() -> None:

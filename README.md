@@ -43,7 +43,7 @@ docrecorder
 5. Optionally check **Record narration (Whisper)** and speak while you demonstrate the flow.
 6. Click **Start** (or press **Cmd+Shift+R** / **Ctrl+Shift+R**).
 7. Click and type in the target app. Use **Pause** to skip sensitive input such as passwords (Pause also mutes the microphone).
-8. **Stop** (or the same hotkey). A session folder opens with `guide.md`, `guide.html`, `events.json`, and screenshots.
+8. **Stop** (or the same hotkey). A preview editor opens so you can edit captions, delete steps, and annotate screenshots. **Save** rewrites `guide.md`, `guide.html`, and `events.json`. Use **Reveal folder** to open the session in Finder or Explorer, or **Edit session…** on the control panel to reopen a past recording.
 
 ## Session output
 
@@ -63,6 +63,18 @@ Clicks are drawn as a high-contrast circle on the annotated images. Typed text i
 When identification is on, Windows reads the accessible name of the control you clicked at click time. Anything it cannot name falls back to Ollama: Stop sends two crops per click, one clean and one with a red ring around the click point, so the model can read the label without the marker covering it. Successful labels become captions such as `Click **Save**.`; if neither source works, captions fall back to coordinates such as `Click at (120, 48).`
 
 When narration is on, Stop transcribes `audio.wav` with local [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (model `base`, or `DOCRECORDER_WHISPER_MODEL` to override). The same local Qwen model then writes fuller step captions. If the microphone, Whisper, or Ollama is unavailable, the guide keeps the mechanical captions.
+
+## Preview editor
+
+Stop opens a preview of the guide. You can:
+
+- Edit each step's caption
+- Delete steps (remaining steps are renumbered on Save)
+- Draw arrows, rectangles, circles, and text on screenshots
+
+**Undo** / **Redo** reverse those edits (`Cmd+Z` / `Cmd+Shift+Z` on macOS, `Ctrl+Z` / `Ctrl+Shift+Z` on Windows). While a caption is focused, the shortcut first undoes typing in that box, then the rest of the guide.
+
+Overlays are stored in `events.json` so they stay editable. Save composites them onto `annotated/step-NN.png` and regenerates the Markdown and HTML guides. Use **Edit session…** on the control panel to open an existing session folder.
 
 ## Click labels
 
